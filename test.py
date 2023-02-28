@@ -4,3 +4,10 @@ a = {
     1: 2
 }
 
+def func(b):
+    b[30] = 10
+
+
+func(a)
+
+print(a)

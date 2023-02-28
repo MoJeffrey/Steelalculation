@@ -1,4 +1,8 @@
 import copy
+import multiprocessing as mp
+from itertools import combinations
+import sys
+
 from time import time
 from typing import List
 
@@ -16,6 +20,7 @@ class CuttingScheme:
     Slicing: list = None
     Waste: int = None
     SteelLength: int = None
+    Complete: bool = None
 
     def __init__(self, SteelLength: int, Slicing: list):
         self.SteelLength = SteelLength
@@ -25,6 +30,10 @@ class CuttingScheme:
         for Num in Slicing:
             self.Waste = self.Waste - Num
 
+        if self.Waste == 0:
+            self.Complete = True
+        else:
+            self.Complete = False
 
 class SteelNeed:
     Length: int = None
@@ -100,16 +109,23 @@ class CuttingSchemeManage:
     CuttingSchemeList: List[CuttingScheme] = None
     SteelLengthList: List[int] = None
     ComposeList: list = None
+    HaveComplete: bool = None
 
-    def __init__(self, order: SteelNeedOrder, SteelLengthList: List[int]):
+    def __init__(self, order: SteelNeedOrder, SteelLengthList: List[int], CuttingSchemeList: List[CuttingScheme] = None):
         self.Order = order
         self.SteelLengthList = SteelLengthList
         self.ComposeList = []
         self.CuttingSchemeList = []
+        self.HaveComplete = False
+
+        if CuttingSchemeList is not None:
+            self.CuttingSchemeList = CuttingSchemeList
+            return
 
         for SteelLength in list(set(SteelLengthList)):
             self.ComposeList.clear()
             self.__AddSlicing(SteelLength, SteelLength, [], self.Order.GetAllSteelNeedLengthList())
+        self.soft()
 
     def __AddSlicing(self, OriginalSteelLength: int, NowSteelLength: int, NowSlicing: list, NeedList: list):
         def append():
@@ -117,7 +133,11 @@ class CuttingSchemeManage:
             TheNowSlicing.sort()
             if TheNowSlicing not in self.ComposeList:
                 self.ComposeList.append(TheNowSlicing)
-                self.CuttingSchemeList.append(CuttingScheme(OriginalSteelLength, TheNowSlicing))
+                CS = CuttingScheme(OriginalSteelLength, TheNowSlicing)
+                self.CuttingSchemeList.append(CS)
+
+                if CS.Complete:
+                    self.HaveComplete = True
 
         for NeedLength in NeedList:
             TheNowSlicing = NowSlicing.copy()
@@ -129,6 +149,18 @@ class CuttingSchemeManage:
 
     def GetCuttingSchemeList(self) -> List[CuttingScheme]:
         return self.CuttingSchemeList
+
+    def soft(self):
+        SlicingList = {}
+        WasteList = []
+        for CS in self.CuttingSchemeList:
+            SlicingList[CS.Waste] = CS
+            WasteList.append(CS.Waste)
+
+        WasteList.sort()
+        self.CuttingSchemeList = []
+        for Waste in WasteList:
+            self.CuttingSchemeList.append(SlicingList[Waste])
 
     def PrintAllCuttingScheme(self):
         print("----------------------------------------------------")
@@ -210,7 +242,8 @@ class OrderCuttingScheme:
 
 
 def BottomUp(cuttingSchemeList: List[CuttingScheme],
-             orderCuttingScheme: OrderCuttingScheme) -> OrderCuttingScheme:
+             orderCuttingScheme: OrderCuttingScheme,
+             minWaste: int) -> OrderCuttingScheme:
 
     f = {0: copy.deepcopy(orderCuttingScheme)}
 
@@ -218,10 +251,11 @@ def BottomUp(cuttingSchemeList: List[CuttingScheme],
         f[Num] = copy.deepcopy(f[Num-1])
         NowOrderCuttingScheme = copy.deepcopy(f[Num-1])
 
+        if NowOrderCuttingScheme.steelNeedOrder.isFinish():
+            return NowOrderCuttingScheme
+
         for SelectCuttingScheme in copy.deepcopy(cuttingSchemeList):
             NewOrderCuttingScheme = copy.deepcopy(NowOrderCuttingScheme)
-            if NewOrderCuttingScheme.steelNeedOrder.isFinish():
-                return NewOrderCuttingScheme
 
             if NewOrderCuttingScheme.append(SelectCuttingScheme):
                 if NewOrderCuttingScheme.AllSteelNeedAndWasteLength() < f[Num].AllSteelNeedAndWasteLength():
@@ -230,6 +264,9 @@ def BottomUp(cuttingSchemeList: List[CuttingScheme],
 
                 elif NowOrderCuttingScheme.steelNeedOrder.GetAllSteelQuantity() == f[Num].steelNeedOrder.GetAllSteelQuantity():
                     f[Num] = copy.deepcopy(NewOrderCuttingScheme)
+
+        if minWaste < f[Num].AllWaste:
+            return f[Num]
 
         TheOrderCuttingScheme = copy.deepcopy(f[Num])
 
@@ -244,60 +281,7 @@ def BottomUp(cuttingSchemeList: List[CuttingScheme],
 
             if Do:
                 f[Num] = copy.deepcopy(TheOrderCuttingScheme)
-
-        f[Num].Print(copy.deepcopy(cuttingSchemeList), orderCuttingScheme.steelNeedOrder)
     return f[orderCuttingScheme.steelNeedOrder.GetAllSteelQuantity()]
-
-
-def GetAllOriginSteelLength(order: SteelNeedOrder, MaxLength: int, MinLength, MinUnit: int) -> list:
-
-    MaxLengthList = {}
-    AllSteelLengthScheme: List[list] = []
-    AllOriginSteelLength = []
-
-    for NeedSteel in order.SteelNeedList:
-        MaxLengthList[NeedSteel.Length] = (int(MaxLength / NeedSteel.Length))
-
-    MaxLengthList = sorted(MaxLengthList.items(), key=lambda d: d[0])
-
-    print(MaxLengthList)
-    exit()
-    x = 0
-    for Key, Value in MaxLengthList:
-        NowSteelLength: List[list] = []
-
-        if x == 0:
-            BeforeSteelLengthScheme = []
-        else:
-            BeforeSteelLengthScheme = AllSteelLengthScheme[x - 1]
-
-        for Num in range(0, Value + 1):
-            if len(BeforeSteelLengthScheme) == 0:
-                New = BeforeSteelLengthScheme[:]
-                New.append(Num)
-                NowSteelLength.append(New)
-            else:
-                for New in BeforeSteelLengthScheme:
-                    TheNew = New[:]
-                    TheNew.append(Num)
-                    NowSteelLength.append(TheNew)
-
-        for TheSteelScheme in NowSteelLength:
-            NewOriginSteelLength = 0
-            for Num in range(0, len(TheSteelScheme)):
-                NewOriginSteelLength += Key * TheSteelScheme[Num]
-
-            NewOriginSteelLength += NewOriginSteelLength % MinUnit
-
-            if MinLength <= NewOriginSteelLength <= MaxLength and NewOriginSteelLength not in AllOriginSteelLength:
-                AllOriginSteelLength.append(NewOriginSteelLength)
-        AllSteelLengthScheme.append(NowSteelLength)
-        x += 1
-
-    AllOriginSteelLength.sort()
-
-    return AllOriginSteelLength
-
 
 def GetAllOriginSteelLengthCombination(AllOriginSteelLengthList: list, MaxDifferentLength: int) -> List[list]:
     def append(CombinationList: List[list]) -> List[list]:
@@ -328,6 +312,32 @@ def GetAllOriginSteelLengthCombination(AllOriginSteelLengthList: list, MaxDiffer
     return AllOriginSteelLengthCombination
 
 
+def RunBottomUpTask(Order, AllCuttingScheme, originSteelLengthCombination, result_dict, result_lock):
+    CuttingSchemeList = []
+    for key in originSteelLengthCombination:
+        CuttingSchemeList += AllCuttingScheme[key].GetCuttingSchemeList()
+
+    OCS = OrderCuttingScheme(Order)
+    r = BottomUp(CuttingSchemeList, OCS, result_dict['minWaste'])
+
+    with result_lock:
+        if result_dict['minWaste'] > r.AllWaste:
+            result_dict['minWaste'] = r.AllWaste
+            result_dict['BestCuttingSchemeList'] = CuttingSchemeList
+            result_dict['BestOrderCuttingScheme'] = r
+
+        result_dict['current'] += 1
+        print('\r' + str(result_dict['current']) + '/' + str(result_dict['AllTask']), file=sys.stderr, end='')
+    return
+
+
+def RunCuttingSchemeManageTask(Order, SteelLength, result_dict, result_lock):
+    CS = CuttingSchemeManage(Order, [SteelLength])
+    with result_lock:
+        result_dict[SteelLength] = CS
+
+    return
+
 if __name__ == '__main__':
     startTime = int(time())
 
@@ -335,23 +345,25 @@ if __name__ == '__main__':
     minLength = 3500
     minUnit = 10
     maxDifferentLength = 3
+    num_cores = int(mp.cpu_count())
+    print("本地计算机有: " + str(num_cores) + " 核心")
 
     Order = SteelNeedOrder()
 
-    Order.append(SteelNeed(1600, 258))
-    Order.append(SteelNeed(840, 10))
-    Order.append(SteelNeed(780, 59))
-    Order.append(SteelNeed(1900, 450))
-    Order.append(SteelNeed(4890, 150))
-    Order.append(SteelNeed(5800, 1540))
-    Order.append(SteelNeed(6100, 800))
-    Order.append(SteelNeed(1500, 160))
-    Order.append(SteelNeed(980, 150))
-    Order.append(SteelNeed(2410, 65))
-    Order.append(SteelNeed(4600, 260))
-    Order.append(SteelNeed(2980, 150))
-    Order.append(SteelNeed(1570, 316))
-    Order.append(SteelNeed(3480, 200))
+    # Order.append(SteelNeed(1600, 258))
+    # Order.append(SteelNeed(840, 10))
+    # Order.append(SteelNeed(780, 59))
+    # Order.append(SteelNeed(1900, 450))
+    # Order.append(SteelNeed(4890, 150))
+    # Order.append(SteelNeed(5800, 1540))
+    # Order.append(SteelNeed(6100, 800))
+    # Order.append(SteelNeed(1500, 160))
+    # Order.append(SteelNeed(980, 150))
+    # Order.append(SteelNeed(2410, 65))
+    # Order.append(SteelNeed(4600, 260))
+    # Order.append(SteelNeed(2980, 150))
+    # Order.append(SteelNeed(1570, 316))
+    # Order.append(SteelNeed(3480, 200))
 
 
     # 测试一
@@ -361,11 +373,11 @@ if __name__ == '__main__':
     # Order.append(SteelNeed(1600, 258))
 
     # 第一组
-    # Order.append(SteelNeed(2700, 48))
-    # Order.append(SteelNeed(3540, 150))
-    # Order.append(SteelNeed(3150, 80))
-    # Order.append(SteelNeed(1850, 21))
-    # Order.append(SteelNeed(970, 60))
+    Order.append(SteelNeed(2700, 48))
+    Order.append(SteelNeed(3540, 150))
+    Order.append(SteelNeed(3150, 80))
+    Order.append(SteelNeed(1850, 21))
+    Order.append(SteelNeed(970, 60))
 
     # 第二组
     # Order.append(SteelNeed(615, 77))
@@ -380,98 +392,67 @@ if __name__ == '__main__':
     # Order.append(SteelNeed(1850, 21))
     # Order.append(SteelNeed(970, 60))
 
-    allOriginSteelLengthList = GetAllOriginSteelLength(Order, maxLength, minLength, minUnit)
-    print(allOriginSteelLengthList)
-    print(len(allOriginSteelLengthList))
+    # allOriginSteelLengthList = GetAllOriginSteelLength(Order, maxLength, minLength, minUnit)
+    # print(allOriginSteelLengthList)
+    # print(len(allOriginSteelLengthList))
 
-    CSMange = CuttingSchemeManage(Order, allOriginSteelLengthList)
+    print(f"原条料可用种数{maxDifferentLength}。")
+    print(f"原条料浮动间隔{minUnit}。")
+    print(f"订单中有{len(Order.SteelNeedList)}条不同长度需求。")
+    print(f"订单中总共需要{Order.GetAllSteelQuantity()}条。")
 
-    CSMange.PrintAllCuttingScheme()
+    allOriginSteelLength = list(range(minLength, maxLength + 1, minUnit))
 
-    BottomUp(CSMange.GetCuttingSchemeList(), OrderCuttingScheme(Order))
-    exit()
-    allOriginSteelLengthCombination = GetAllOriginSteelLengthCombination(allOriginSteelLengthList, maxDifferentLength)
+    pool = mp.Pool(num_cores)
+    manager = mp.Manager()
+    managed_locker = manager.Lock()
+    allCuttingScheme = manager.dict()
 
-    # print(allOriginSteelLengthCombination)
-    AllTask = Order.GetAllSteelQuantity() * len(allOriginSteelLengthCombination)
-    PB = ProgressBar(AllTask, fmt=ProgressBar.FULL)
+    results = [
+        pool.apply_async(RunCuttingSchemeManageTask,
+                         args=(Order, SteelLength, allCuttingScheme, managed_locker))
+        for SteelLength in allOriginSteelLength
+    ]
+    results = [p.get() for p in results]
 
-    AllOrderCuttingScheme = {}
+    BestOriginSteelLengthList = []
 
-    BestCuttingSchemeMangeList: list[CuttingSchemeManage] = []
-    BestCuttingSchemeMaxClearNum = -1
+    for key in allCuttingScheme:
+        print(allCuttingScheme[key].PrintAllCuttingScheme())
+        exit()
+        if allCuttingScheme[key].HaveComplete:
+            BestOriginSteelLengthList.append(key)
 
-    for OriginSteelLengthCombination in allOriginSteelLengthCombination:
-        CSMange = CuttingSchemeManage(Order, OriginSteelLengthCombination)
+    print(f'有{len(BestOriginSteelLengthList)}钢条符合。')
 
-        CuttingSchemeList = CSMange.GetCuttingSchemeList()
+    allOriginSteelLengthCombination = list(combinations(BestOriginSteelLengthList, maxDifferentLength))
+    print(f'有{len(allOriginSteelLengthCombination)}组合结果。')
+    print("----------------------------------------------------")
 
-        MaxClearNum = 0
-        for s in CuttingSchemeList:
-            if s.Waste == 0:
-                MaxClearNum += 1
-
-        if MaxClearNum > BestCuttingSchemeMaxClearNum:
-            BestCuttingSchemeMangeList = [copy.deepcopy(CSMange)]
-            BestCuttingSchemeMaxClearNum = MaxClearNum
-
-        elif MaxClearNum == BestCuttingSchemeMaxClearNum:
-            BestCuttingSchemeMangeList.append(copy.deepcopy(CSMange))
-
-    PB = ProgressBar(len(BestCuttingSchemeMangeList), fmt=ProgressBar.FULL)
-
-    AllOrderCuttingScheme = {}
-
+    print("开始")
     # BestCuttingSchemeMangeList = [CuttingSchemeManage(Order, [6200, 5940])]
     # BestCuttingSchemeMangeList = [CuttingSchemeManage(Order, [3560, 3560])]
-    minWaste = float('inf')
-    minWasteNum = 0
-    minSteelLengthList = []
-    for OriginSteelLengthCombination in BestCuttingSchemeMangeList:
-        # TheMinWaste = float('inf')
-        # TheMinWasteNum = 0
-        # for s in OriginSteelLengthCombination.CuttingSchemeList:
-        #     if s.Waste != 0 and s.Waste < TheMinWaste:
-        #         TheMinWaste = s.Waste
-        #         TheMinWasteNum = 1
-        #     elif s.Waste == TheMinWaste:
-        #         TheMinWasteNum += 1
-        #
-        # if TheMinWaste < minWaste:
-        #     minSteelLengthList = OriginSteelLengthCombination.SteelLengthList
-        #     minWaste = TheMinWaste
-        # elif TheMinWaste == minWaste and minWasteNum > TheMinWasteNum:
-        #     minSteelLengthList = OriginSteelLengthCombination.SteelLengthList
-        #     minWaste = TheMinWaste
-        # OriginSteelLengthCombination.PrintAllCuttingScheme()
-        # print(f'{OriginSteelLengthCombination.SteelLengthList}: 总损耗, 总')
-        # continue
+    pool = mp.Pool(num_cores)
+    manager = mp.Manager()
+    managed_locker = manager.Lock()
+    managed_dict = manager.dict()
 
-        CuttingSchemeList = OriginSteelLengthCombination.GetCuttingSchemeList()
-        # OriginSteelLengthCombination.PrintAllCuttingScheme()
-        # print(OriginSteelLengthCombination.SteelLengthList)
+    managed_dict['minWaste'] = float('inf')
+    managed_dict['BestOrderCuttingScheme'] = None
+    managed_dict['BestCuttingSchemeList'] = None
+    managed_dict['current'] = 0
+    managed_dict['AllTask'] = len(allOriginSteelLengthCombination)
 
-        OCS = OrderCuttingScheme(Order)
-        OCS.SetSteelLengthList(OriginSteelLengthCombination.SteelLengthList)
-
-        r = BottomUp(CuttingSchemeList, OCS)
-        # r.Print(CuttingSchemeList, Order)
-        PB()
-        PB.current += 1
-
-        AllOrderCuttingScheme[r.AllWaste] = [r, CuttingSchemeList]
-
-    minWaste = float('inf')
-    for Waste in AllOrderCuttingScheme:
-        if minWaste > Waste:
-            minWaste = Waste
-
+    StepCount = 100
+    for count in range(0, int(len(allOriginSteelLengthCombination)/StepCount)):
+        results = [
+            pool.apply_async(RunBottomUpTask, args=(Order, allCuttingScheme, OriginSteelLengthCombination, managed_dict, managed_locker))
+            for OriginSteelLengthCombination in allOriginSteelLengthCombination[count*StepCount: (count-1)*StepCount]
+        ]
+        results = [p.get() for p in results]
+        break
+    print("")
     print("最后")
-    # print(minSteelLengthList)
-
-    # exit()
-    minOrderCuttingScheme = AllOrderCuttingScheme[minWaste]
-    minOrderCuttingScheme[0].Print(minOrderCuttingScheme[1], Order)
-
+    managed_dict['BestOrderCuttingScheme'].Print(managed_dict['BestCuttingSchemeList'], Order)
     endTime = int(time())
     print(f'执行时间 {endTime - startTime} s')

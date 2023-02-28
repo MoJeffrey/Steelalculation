@@ -1,9 +1,8 @@
-from __future__ import print_function
 import sys
 import re
 
 
-class ProgressBar(object):
+class ProgressBar:
     DEFAULT = 'Progress: %(bar)s %(percent)3d%%'
     FULL = '%(bar)s %(current)d/%(total)d (%(percent)3d%%) %(remaining)d to go'
 
